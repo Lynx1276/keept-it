@@ -1,10 +1,13 @@
 "use server";
 
 import { ID, Query } from "node-appwrite";
-import { createAdminClient } from "../appwrite";
+import { createAdminClient, createSessionClient } from "../appwrite";
 import { appwriteConfig } from "../appwrite/config";
 import { parseStringify } from "../utils";
 import { cookies } from "next/headers";
+import { avatarPlaceholderUrl } from "@/constants";
+import { redirect } from "next/navigation";
+
 
 
 const getUserByEmail = async ( email: string) => {
@@ -60,7 +63,7 @@ export const creatAccount = async ({
                 fullName,
                 password,
                 accountId,
-                avatar: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wCEAAkGBxAQEA8ODxAPDhEODQ0NDw8ODw8PDw4QFREWFhUSExMYHSggGBolGxMTITEhJSkrLi4uFx8zODMsNygtLisBCgoKBQUFDgUFDisZExkrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrK//AABEIAOEA4QMBIgACEQEDEQH/xAAbAAEAAgMBAQAAAAAAAAAAAAAAAwQBAgUGB//EADMQAQACAQEGAwcCBgMAAAAAAAABAgMRBAUhMVFxEkGRIjJhgaGxwVLhQnKSstHwI4Ki/8QAFAEBAAAAAAAAAAAAAAAAAAAAAP/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/APuIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAxMseOOsA2GvjjrDMSDIAAAAAAAAAAAAAAAAAAAAADFrRHNFfL09UUyCW2bp9Uc3nq1AAAAAbReeqSubr9EIC1W8TybKaWmXqCcYiWQAAAAAAAAAAAAAJBiZV8mTXsZL69mgAAAAAAAAAAAANqX0Wa21VG1LaAtDETrxZAAAAAAAAAAAQ5r+XqltbSNVWZBgAAABply1pGtp0+89mcl4rE2nlEauJtGab21n5R0gFjPvG0+77Mesqtstp52tPeZagNq5LRytaO0ysYd4Xrz9qPjz9VUB3cGet41rPePOEjgYsk1mLRwmP8AdHb2fNF6xaPnHSegJAAAAS4b+XVOprOO2sA3AAAAAAAAABDnnlHzQtsk6zLUAAAAHO3rl92n/afw56xvGf8Akt8IrH0VwAAAAFzdeXS3h8rR9YU0myzpen81fuDugAAAJcE8dOqJmJ04gtgAAAAAAAMSy1vynsCqAAAAADkbzrpkmesRP4/Cq6u88OtYtHOvP+VygAAAAE2x11yUj46+nFC6G6sPPJPav5kHRAAAAABaxzwjs2aYeUNwAAAAAAGt+U9mzEgqAAAAAAOTtuxzXW1eNf7f2dYB54dbPu+luMezPw5eirbdt/Kaz85gFMXK7tv5zWPnM/hYw7urHG0+L4coBT2TZZvPSsc56/CHYrWIiIjhERpDMRpwjgAAAAAAAs4eUN2uOOEdmwAAAAAAAAKt40me7VNnjlPyQgAAAADTLlrSNbTp957Odm3jaeFI8MdZ4z+wOojnPSOd6/1Q4l8k296ZnvLUHdjaKT/HT+qEkTry49nnma2mOUzHadAegHJw7wvHve1HpPq6ODaK3j2Z7xPOASgAAAMxDCTDXj2BYgAAAAAAAAAGt66xoqriDNXzBEAAg2vaYxx1tPKPzKTPlilZtPl9ZcPLkm0zaec/7oBkyTadbTrLUAAAAAGa2mJ1iZiY84YAdfYtr8fCeFo9J+MLTz1bTExMcJjjEu3smfx11844Wj4gmAAWcVdI78UWKms9lgAAAAAAAAAABiYZAVb00ardq6q166cwcnemXW0U8q8Z7ypNsl/FM26zMtQAAAAAAAAFnd+Xw3jpb2Z/CsA9CzWuvBrs8+OKzHnET2W6U0BmtdI0ZAAAAAAAAAAAAABi9YmJieUxpLIDhbZuu1dZpravT+KP8ue9arbTsNMnGY0n9VeE/uDzY6GfdN6+7pePSVHJitX3qzXvEwDUAAAAZpSbcKxM9omV3BurJb3tKR8eM+kAorux7tvfjPsV6zzntDqbNu7HTjp4p62/ELgNMOKKViteUcIbgAAAAAAAAAAAAAAAAAAAxMMgIL7HjnnSvpEfZFO7MP6fS1v8rgCnG7MP6f8A1ZJTYsUcqV+ca/dYAYrWI4RGnbgyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP/Z"
+                avatar: avatarPlaceholderUrl,
             },
         );
     }
@@ -74,15 +77,60 @@ export const verifySecret = async ({ accountId, password }: { accountId: string,
 
     const session = await account.createSession(accountId, password);
 
-        (await cookies()).set('appwrite-seesion', session.secret, {
+        (await cookies()).set('appwrite-session', session.secret, {
             path: '/',
             httpOnly: true,
             sameSite: 'strict',
             secure: true,
-        })
+        });
 
         return parseStringify({ sessionId: session.$id });
     } catch (error) {
         handleError(error, "Failed to verify OTP");
     }
 };
+
+export const getCurrentUser = async () => {
+    const { database, account } = await createSessionClient();
+
+    const result = await account.get();
+
+    const user = await database.listDocuments(
+        appwriteConfig.databaseId,
+        appwriteConfig.userCollectionId,
+        [Query.equal("accountId", result.$id)],
+    );
+
+    if(user.total <= 0) return null;
+
+    return parseStringify(user.documents[0]);
+};
+
+export const signOutUser = async () => {
+    const { account } = await createSessionClient();
+
+    try {
+        await account.deleteSession("current");
+        (await cookies()).delete("appwrite-session");
+    } catch (error) {
+        handleError(error, "Faild to sign out user");
+    } finally {
+        redirect("/sign-in");
+    }
+};
+
+export const signInUser = async ({ email }: { email: string }) => {
+    try {
+      const existingUser = await getUserByEmail(email);
+  
+      // User exists, send OTP
+      if (existingUser) {
+        await sendEmailOTP({ email });
+        return parseStringify({ accountId: existingUser.accountId });
+      }
+  
+      return parseStringify({ accountId: null, error: "User not found" });
+    } catch (error) {
+      handleError(error, "Failed to sign in user");
+    }
+  };

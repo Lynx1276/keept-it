@@ -11,9 +11,7 @@ export const createSessionClient = async () => {
 
     const session = (await cookies()).get('appwrite-session');
 
-    if (!session?.value) {
-        throw new Error('No session found');
-    }
+    if (!session || !session.value) throw new Error("No session");
 
     client.setSession(session.value);
 
@@ -23,8 +21,8 @@ export const createSessionClient = async () => {
         },
         get database() {
             return new Databases(client);
-        }
-    }
+        },
+    };
 };
 
 export const createAdminClient = async () => {
@@ -46,6 +44,6 @@ export const createAdminClient = async () => {
         },
         get avatar(){
             return new Avatars(client);
-        }
-    }
-}
+        },
+    };
+};
